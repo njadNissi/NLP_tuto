@@ -1,0 +1,6 @@
+torch >= 2.0.1
+jupyterlab >= 4.0
+tiktoken >= 0.5.1
+matplotlib >= 3.7.1
+numpy >= 1.25, < 2.0
+psutil >= 5.9.5
