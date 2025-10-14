@@ -28,9 +28,7 @@ import os
 from pathlib import Path
 import re
 import PyPDF2
-import numpy as np
-import torch
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import SentenceTransformer
 from transformers import pipeline
 import faiss
 from tqdm import tqdm

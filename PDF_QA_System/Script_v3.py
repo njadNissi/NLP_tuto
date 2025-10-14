@@ -1,14 +1,18 @@
 """
-
+    -  PDF Question Answering System with Threading
+    -  Extracts text from PDFs in a directory (and subdirectories)
+    -  Splits text into chunks, creates embeddings, and builds a FAISS index
+    -  Answers user questions using a QA model based on relevant chunks
+    -  Utilizes threading to speed up PDF processing
+    -  Handles errors gracefully and provides informative messages
+    - Requires: PyPDF2, sentence-transformers, transformers, faiss-cpu, tqdm, pickle
+    -  Install missing packages via pip if needed
 """
-
 import os
 from pathlib import Path
 import re
 import PyPDF2
-import numpy as np
-import torch
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import SentenceTransformer
 from transformers import pipeline
 import faiss
 from tqdm import tqdm
