@@ -1,28 +1,12 @@
 """
-    - Support for PDFs in Subfolders:
-        Uses pathlib to recursively find PDFs in all subdirectories.
-    - Improved Text Extraction:
-        Cleans extracted text by removing extra spaces and newlines.
-    - Dynamic Chunk Sizing:
-        Adjusts chunk size and overlap for short texts to avoid empty chunks.
-    - Enhanced Error Handling:
-        More robust error handling during PDF processing and embedding creation.
-    - Threaded PDF Processing:
-        Uses ThreadPoolExecutor to process multiple PDFs in parallel, speeding up text extraction and chunking.
-    - Progress Tracking:
-        Uses tqdm to show progress of PDF processing.
-    - Configurable Thread Count:
-        Allows setting the number of concurrent threads for PDF processing.
-    - Validation of Text Chunks:
-        Ensures only valid, non-empty text chunks are stored and processed.
-    - Improved User Interaction:
-        Validates user input and provides clearer prompts.
-    - Fallbacks for Model Loading:
-        Tries multiple model names before falling back to defaults.
-    - Detailed Logging:
-        Provides more informative messages during processing, including warnings for skipped files.
-    - No Support for Non-Embeddable Strings:
-        TypeError: TextEncodeInput must be Union[TextInputSequence, Tuple[InputSequence, InputSequence]]
+    -  PDF Question Answering System with Threading
+    -  Extracts text from PDFs in a directory (and subdirectories)
+    -  Splits text into chunks, creates embeddings, and builds a FAISS index
+    -  Answers user questions using a QA model based on relevant chunks
+    -  Utilizes threading to speed up PDF processing
+    -  Handles errors gracefully and provides informative messages
+    - Requires: PyPDF2, sentence-transformers, transformers, faiss-cpu, tqdm, pickle
+    -  Install missing packages via pip if needed
 """
 import os
 from pathlib import Path
@@ -34,6 +18,7 @@ import faiss
 from tqdm import tqdm
 import pickle
 from concurrent.futures import ThreadPoolExecutor, as_completed  # THREADING: Import thread tools
+from model_utils import get_cached_model  # Reuse model caching logic
 
 
 class PDFQASystem:
@@ -43,36 +28,19 @@ class PDFQASystem:
                  max_threads=4):  # THREADING: Add thread count config
         self.pdf_dir = pdf_dir
         self.model = self._load_sentence_model(model_name)
-        self.qa_pipeline = self._load_qa_model(qa_model_name)
+        self.qa_pipeline = get_cached_model(qa_model_name)
         self.index = None
         self.text_chunks = []  # Stores (chunk, full_path, relative_path)
         self.embeddings = None
         self.max_threads = max_threads  # THREADING: Save max concurrent threads
-
-
-    def _load_sentence_model(self, model_name):
-        try:
-            full_model_name = f"sentence-transformers/{model_name}"
-            print(f"Loading sentence transformer model: {full_model_name}")
-            return SentenceTransformer(full_model_name)
-        except Exception as e:
-            print(f"❌ Could not load {full_model_name}: {str(e)}")
-            print(f"⚠️ Trying to load base model: {model_name}")
-            try:
-                return SentenceTransformer(model_name)
-            except Exception as e:
-                print(f"❌ Could not load {model_name}: {str(e)}")
-                print("⚠️ Falling back to default model")
-                return SentenceTransformer("all-MiniLM-L6-v2")
-
 
     def _load_qa_model(self, model_name):
         try:
             print(f"Loading QA model: {model_name}")
             return pipeline("question-answering", model=model_name)
         except Exception as e:
-            print(f"❌ Could not load {model_name}: {str(e)}")
-            print("⚠️ Falling back to default QA model")
+            print(f"Could not load {model_name}: {str(e)}")
+            print("Falling back to default QA model")
             return pipeline("question-answering", model="distilbert-base-uncased-distilled-squad")
 
 
@@ -89,7 +57,7 @@ class PDFQASystem:
                 text = re.sub(r'\s+', ' ', text).strip()
                 return text
         except Exception as e:
-            print(f"❌ Error extracting text from {pdf_path}: {str(e)}")
+            print(f"Error extracting text from {pdf_path}: {str(e)}")
             return ""
 
 
@@ -118,16 +86,16 @@ class PDFQASystem:
         
         # Skip PDFs with no text
         if not text:
-            return None, f"⚠️ Warning: No text extracted from {rel_path} — skipping."
+            return None, f"Warning: No text extracted from {rel_path} — skipping."
         
         # Split into chunks
         chunks = self.split_text_into_chunks(text)
         if not chunks:
-            return None, f"⚠️ Warning: No valid chunks from {rel_path} — skipping."
+            return None, f"Warning: No valid chunks from {rel_path} — skipping."
         
         # Return chunks with source info (ready to add to all_chunks)
         chunks_with_source = [(chunk, pdf_path, rel_path) for chunk in chunks]
-        return chunks_with_source, f"✅ Processed {rel_path} → {len(chunks)} chunks"
+        return chunks_with_source, f"Processed {rel_path} → {len(chunks)} chunks"
 
 
     def process_all_pdfs(self):
@@ -138,7 +106,7 @@ class PDFQASystem:
         pdf_files = [str(path) for path in pdf_files]
         
         if not pdf_files:
-            print(f"⚠️ Warning: No PDF files found in {self.pdf_dir} or its subfolders.")
+            print(f"Warning: No PDF files found in {self.pdf_dir} or its subfolders.")
             return self
         
         # THREADING: Use ThreadPoolExecutor to process PDFs in parallel
@@ -157,16 +125,17 @@ class PDFQASystem:
                     if chunks:
                         all_chunks.extend(chunks)
                 except Exception as e:
-                    print(f"\n❌ Error processing {pdf_path} in thread: {str(e)}")
+                    print(f"\nError processing {pdf_path} in thread: {str(e)}")
 
         # Final filter: Keep only valid chunks (safety check)
         self.text_chunks = [entry for entry in all_chunks if isinstance(entry[0], str) and entry[0].strip()]
         
         if not self.text_chunks:
-            print("⚠️ Warning: No valid text chunks found across all PDFs. Embeddings cannot be created.")
+            print("Warning: No valid text chunks found across all PDFs. Embeddings cannot be created.")
             return self
         
-        print(f"\n✅ Processed {len(pdf_files)} PDFs into {len(self.text_chunks)} valid text chunks (parallel processing done)")
+        print(f"\nProcessed {len(pdf_files)} PDFs into {len(self.text_chunks)} valid text chunks (parallel processing done)")
+        print("Creating embeddings (this may take a while)...") 
         
         # Create embeddings (CPU-bound, no threading needed here)
         print("Creating embeddings...")
@@ -180,7 +149,7 @@ class PDFQASystem:
 
     def _create_index(self):
         if self.embeddings is None or len(self.embeddings) == 0:
-            print("❌ Error: Cannot create FAISS index — no embeddings available.")
+            print("Error: Cannot create FAISS index — no embeddings available.")
             return self
         dimension = self.embeddings.shape[1]
         self.index = faiss.IndexFlatL2(dimension)
@@ -190,7 +159,7 @@ class PDFQASystem:
 
     def save_index(self, index_path="artifacts/pdf_qa_index.pkl"):
         if not self.index or not self.text_chunks or self.embeddings is None:
-            print("❌ Error: Cannot save index — no valid data (index/chunks/embeddings missing).")
+            print("Error: Cannot save index — no valid data (index/chunks/embeddings missing).")
             return self
         data = {
             'index': self.index,
@@ -217,21 +186,21 @@ class PDFQASystem:
             
             # Validate loaded chunks
             self.text_chunks = [entry for entry in self.text_chunks if isinstance(entry[0], str) and entry[0].strip()]
-            print(f"✅ Index loaded from {index_path} (found {len(self.text_chunks)} valid chunks)")
+            print(f"Index loaded from {index_path} (found {len(self.text_chunks)} valid chunks)")
             return self
         except Exception as e:
-            print(f"❌ Error loading index from {index_path}: {str(e)}")
+            print(f"Error loading index from {index_path}: {str(e)}")
             return self
 
 
     def find_relevant_chunks(self, query, top_k=5):
         if not self.index or not self.text_chunks or self.embeddings is None:
-            print("❌ Error: Cannot find relevant chunks — index/data not ready.")
+            print("Error: Cannot find relevant chunks — index/data not ready.")
             return []
         
         query = str(query).strip()
         if not query:
-            print("❌ Error: Empty query — cannot search.")
+            print("Error: Empty query — cannot search.")
             return []
         
         query_embedding = self.model.encode([query])
@@ -280,7 +249,7 @@ class PDFQASystem:
             result['full_sources'] = unique_full_sources
             return result
         except Exception as e:
-            print(f"❌ Error generating answer: {str(e)}")
+            print(f"Error generating answer: {str(e)}")
             return {
                 'answer': "I encountered an error while generating an answer.",
                 'score': 0.0,
@@ -292,7 +261,7 @@ class PDFQASystem:
 def main():
     # Configuration
     PDF_DIR = "knowledge"  # Update to your PDF folder
-    MAX_THREADS = 8  # THREADING: Adjust based on your CPU (4–8 works for most systems)
+    MAX_THREADS = 12  # THREADING: Adjust based on your CPU (4–8 works for most systems)
     
     # Count total PDFs
     pdf_files = list(Path(PDF_DIR).rglob("*.pdf"))
@@ -314,7 +283,7 @@ def main():
         qa_system.load_index(INDEX_PATH)
     else:
         if file_count == 0:
-            print("❌ Error: No PDFs found — cannot create index.")
+            print("Error: No PDFs found — cannot create index.")
             return
         qa_system.process_all_pdfs().save_index(INDEX_PATH)
     

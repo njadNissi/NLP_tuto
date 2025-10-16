@@ -46,8 +46,9 @@ A large language model (LLM) is a type of computational model designed for natur
 │   │   ├── ...                                     /
 │   │   ├── HTML5NotesForProfessionals.pdf         /
 │   │   ├── JavaNotesForProfessionals.pdf   <-----/
-│   ├── Script_v2.py    <-------------------------- Using simple Q&A
-│   └── Script_v3.py    <-------------------------- Using batch Q&A
+│   ├── model_cache    <-------------------------- Sentence downloaded Model
+│   └── ...
+│   └── main.py <--------------------------------- Run the application CLI/Web
 ├── README.md
 └── requirements.txt
 ```
@@ -83,3 +84,13 @@ A large language model (LLM) is a type of computational model designed for natur
 	make sure you are in the project directory: cd <path-to-llm_env>
 	pip install -r requirements.txt
 	```
+
+- For the Command Line Interface (CLI), use:
+	```
+		python main cli
+	```
+- For the web-app, `web` is optional run:
+	```
+	streamlit run main.py
+	```
+
