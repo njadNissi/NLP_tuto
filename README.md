@@ -84,7 +84,15 @@ A large language model (LLM) is a type of computational model designed for natur
 	make sure you are in the project directory: cd <path-to-llm_env>
 	pip install -r requirements.txt
 	```
+---
+RUN The Notebooks with your Jupiter environment.
+--
+For the PDF_QA_System, first move inside this directory:
 
+```bash
+	cd PDF_QA_System
+```
+then run:
 - For the Command Line Interface (CLI), use:
 	```
 		python main cli
